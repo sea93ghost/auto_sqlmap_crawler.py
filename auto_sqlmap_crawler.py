@@ -5,13 +5,12 @@ import subprocess
 import re
 
 # Konfigurasi
-TARGET = "http://localhost/dvwa/"  # Ganti dengan domain target Anda
 CRAWL_LIMIT = 50  # Batas jumlah halaman yang di-crawl
 SQLMAP_PATH = "sqlmap"  # Pastikan sqlmap ada di PATH
 VISITED = set()
 URLS_WITH_PARAMS = []
 
-def crawl(url):
+def crawl(url, target_domain):
     if len(VISITED) >= CRAWL_LIMIT:
         return
     try:
@@ -21,17 +20,17 @@ def crawl(url):
     VISITED.add(url)
     print(f"[Crawl] {url}")
 
-    # Cari link
+    # Cari link di halaman
     soup = BeautifulSoup(response.text, "html.parser")
     for link_tag in soup.find_all("a", href=True):
         link = urljoin(url, link_tag["href"])
         parsed = urlparse(link)
 
-        # Batasi hanya di domain target
-        if TARGET in link and link not in VISITED:
-            if "?" in parsed.query:  # Ada parameter GET
+        # Batasi hanya domain target
+        if target_domain in link and link not in VISITED:
+            if parsed.query:  # Ada parameter GET
                 URLS_WITH_PARAMS.append(link)
-            crawl(link)
+            crawl(link, target_domain)
 
 def test_sqlmap(url):
     print(f"\n[+] Menguji kerentanan SQLi: {url}")
@@ -56,8 +55,16 @@ def run_full_sqlmap(url):
         subprocess.run(cmd)
 
 if __name__ == "__main__":
+    # Input URL dari user
+    TARGET = input("Masukkan URL target (contoh: http://localhost/dvwa/): ").strip()
+    if not TARGET.startswith("http"):
+        print("[!] URL harus diawali http:// atau https://")
+        exit()
+
+    TARGET_DOMAIN = urlparse(TARGET).netloc
+
     print("[*] Mulai crawling...")
-    crawl(TARGET)
+    crawl(TARGET, TARGET_DOMAIN)
 
     print(f"\n[!] Total URL dengan parameter ditemukan: {len(URLS_WITH_PARAMS)}")
     for vuln_url in URLS_WITH_PARAMS:

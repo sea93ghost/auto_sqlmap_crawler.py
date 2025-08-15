@@ -11,7 +11,7 @@ CRAWL_LIMIT = 100
 MAX_THREADS = 10
 DUMP_THREADS = 5
 SQLMAP_PATH = "sqlmap"
-TARGET_KEYWORDS = ["user", "username", "admin", "pass", "password", "login"]
+TARGET_KEYWORDS = ["user", "users", "username", "admin", "pass", "password", "login",  "email",  "mail"]
 
 VISITED = set()
 URLS_WITH_PARAMS = []

